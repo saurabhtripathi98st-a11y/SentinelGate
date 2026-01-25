@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>SENTINEL | SOC COMMAND</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
+        body { font-family: 'JetBrains Mono', monospace; background-color: #030303; }
+        .cyber-border { border: 1px solid rgba(79, 70, 229, 0.3); }
+        .danger-state { border-color: #ef4444; box-shadow: 0 0 30px rgba(239, 68, 68, 0.3); background: rgba(239, 68, 68, 0.05); }
+    </style>
+</head>
+<body class="text-zinc-400 p-8 transition-colors duration-500" id="main-body">
+    <div class="max-w-7xl mx-auto">
+        <header class="flex justify-between items-center mb-10">
+            <div>
+                <h1 class="text-2xl font-black text-white tracking-widest">SENTINEL_GATE <span class="text-indigo-500">v2.0</span></h1>
+                <p class="text-[10px] text-zinc-600 mt-1 uppercase">REAL-TIME TRAFFIC INTELLIGENCE & INFRASTRUCTURE SHIELD</p>
+            </div>
+            <div id="status-box" class="px-6 py-2 rounded-full border cyber-border text-[10px] font-bold text-indigo-400">STATUS: MONITORING</div>
+        </header>
+
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+            <div class="bg-zinc-900/50 p-6 rounded-2xl cyber-border card-stat"><p class="text-[10px] font-bold text-zinc-600 mb-1">p99 Latency</p><h2 id="p99" class="text-3xl font-bold text-white">0s</h2></div>
+            <div class="bg-zinc-900/50 p-6 rounded-2xl cyber-border card-stat"><p class="text-[10px] font-bold text-zinc-600 mb-1">Avg Latency</p><h2 id="avg" class="text-3xl font-bold text-indigo-400">0s</h2></div>
+            <div class="bg-zinc-900/50 p-6 rounded-2xl cyber-border card-stat"><p class="text-[10px] font-bold text-zinc-600 mb-1">Anomalies</p><h2 id="anomalies" class="text-3xl font-bold text-red-500">0</h2></div>
+            <div class="bg-zinc-900/50 p-6 rounded-2xl cyber-border card-stat"><p class="text-[10px] font-bold text-zinc-600 mb-1">Total (Window)</p><h2 id="total" class="text-3xl font-bold text-white">0</h2></div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="lg:col-span-2 bg-zinc-900/50 p-6 rounded-3xl cyber-border h-[450px]" id="liveChart"></div>
+            <div class="bg-zinc-900/50 rounded-3xl cyber-border flex flex-col overflow-hidden">
+                <div class="p-4 border-b border-zinc-800 text-[10px] font-bold text-indigo-500 uppercase">SECURITY_LOGS</div>
+                <div class="flex-1 overflow-y-auto max-h-[380px]">
+                    <table class="w-full text-[10px]"><tbody id="log-table" class="divide-y divide-zinc-800/50"></tbody></table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function refresh() {
+            try {
+                const [intel, logs] = await Promise.all([
+                    fetch('/api/intelligence').then(r => r.json()),
+                    fetch('/api/logs').then(r => r.json())
+                ]);
+
+                document.getElementById('p99').innerText = intel.p99 + 's';
+                document.getElementById('avg').innerText = intel.avg + 's';
+                document.getElementById('anomalies').innerText = intel.anomalies;
+                document.getElementById('total').innerText = intel.total_requests;
+
+                const statusBox = document.getElementById('status-box');
+                if (intel.status === 'DANGER') {
+                    statusBox.innerText = 'ALERT: UNDER_ATTACK';
+                    statusBox.className = 'px-6 py-2 rounded-full border border-red-500 text-[10px] font-bold text-red-500 animate-pulse bg-red-500/10 shadow-[0_0_15px_rgba(239,68,68,0.5)]';
+                    document.querySelectorAll('.card-stat').forEach(el => el.classList.add('danger-state'));
+                } else {
+                    statusBox.innerText = 'STATUS: OPTIMAL';
+                    statusBox.className = 'px-6 py-2 rounded-full border cyber-border text-[10px] font-bold text-indigo-400';
+                    document.querySelectorAll('.card-stat').forEach(el => el.classList.remove('danger-state'));
+                }
+
+                document.getElementById('log-table').innerHTML = logs.map(l => `
+                    <tr class="hover:bg-zinc-800/30">
+                        <td class="p-3 text-zinc-600 font-bold">${l.time.split(' ')[1]}</td>
+                        <td class="p-3 font-bold ${l.status === 'BLOCKED' ? 'text-red-500' : 'text-green-500'}">${l.status}</td>
+                        <td class="p-3 text-zinc-400 font-bold uppercase truncate max-w-[100px]">${l.reason}</td>
+                    </tr>
+                `).join('');
+
+                const lats = logs.map(l => l.status === 'ALLOWED' ? 0.05 : 0).reverse();
+                const times = logs.map(l => l.time).reverse();
+
+                Plotly.newPlot('liveChart', [{
+                    x: times, y: lats, type: 'scatter', mode: 'lines+markers',
+                    fill: 'tozeroy', fillcolor: intel.status === 'DANGER' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(99, 102, 241, 0.1)',
+                    line: { color: intel.status === 'DANGER' ? '#ef4444' : '#6366f1', shape: 'spline', width: 4 }
+                }], {
+                    paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+                    font: { color: '#444', family: 'JetBrains Mono' },
+                    margin: { t: 40, b: 40, l: 50, r: 20 },
+                    title: { text: 'LATENCY (SEC)', font: { color: '#fff', size: 14 } },
+                    xaxis: { showgrid: false, zeroline: false },
+                    yaxis: { gridcolor: '#111', zeroline: false, range: [0, 0.1] }
+                }, { displayModeBar: false });
+
+            } catch (e) { console.log("Updating..."); }
+        }
+        setInterval(refresh, 2000);
+        refresh();
+    </script>
+</body>
+</html>
